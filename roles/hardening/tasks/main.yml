@@ -1,0 +1,59 @@
+---
+# Safety net: never write an AllowUsers line that would lock out the account Ansible uses.
+- name: Make sure the connecting user stays allowed over SSH
+  ansible.builtin.assert:
+    that:
+      - (ansible_user | default(lookup('env', 'USER'))) in hardening_ssh_allow_users
+        or hardening_in_container
+    fail_msg: >-
+      ansible_user '{{ ansible_user | default('?') }}' is not in hardening_ssh_allow_users
+      {{ hardening_ssh_allow_users }} - applying this would lock you out.
+    quiet: true
+
+- name: Install openssh-server and firewalld
+  ansible.builtin.dnf:
+    name:
+      - openssh-server
+      - firewalld
+    state: present
+
+- name: Deploy sshd hardening drop-in
+  ansible.builtin.template:
+    src: 01-homelab.conf.j2
+    dest: /etc/ssh/sshd_config.d/01-homelab.conf
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Validate and reload sshd
+
+- name: Enable and start sshd
+  ansible.builtin.systemd_service:
+    name: sshd
+    enabled: true
+    state: started
+  when: not hardening_in_container
+
+- name: Enable and start firewalld
+  ansible.builtin.systemd_service:
+    name: firewalld
+    enabled: true
+    state: started
+  when: not hardening_in_container
+
+- name: Open required firewalld services
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ hardening_firewalld_services_open }}"
+  when: not hardening_in_container
+
+- name: Close unwanted firewalld services
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: disabled
+  loop: "{{ hardening_firewalld_services_closed }}"
+  when: not hardening_in_container

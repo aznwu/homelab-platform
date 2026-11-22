@@ -1,0 +1,59 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Collect installed packages
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Base and hardening packages are installed
+      ansible.builtin.assert:
+        that: item in ansible_facts.packages
+        fail_msg: "{{ item }} is not installed"
+        quiet: true
+      loop:
+        - chrony
+        - git
+        - firewalld
+        - openssh-server
+
+    - name: Read /etc/fstab
+      ansible.builtin.slurp:
+        src: /etc/fstab
+      register: verify_fstab
+      failed_when: false
+
+    - name: No swap entries in /etc/fstab
+      ansible.builtin.assert:
+        that: >-
+          verify_fstab.content is not defined or
+          (verify_fstab.content | b64decode | regex_search('^[^#]\S*\s+\S+\s+swap\s', multiline=True)) is none
+        fail_msg: /etc/fstab still contains a swap entry
+        quiet: true
+
+    - name: Read sshd drop-in
+      ansible.builtin.slurp:
+        src: /etc/ssh/sshd_config.d/01-homelab.conf
+      register: verify_sshd
+
+    - name: Check sshd drop-in settings
+      ansible.builtin.assert:
+        that:
+          - "'PasswordAuthentication no' in (verify_sshd.content | b64decode)"
+          - "'PermitRootLogin no' in (verify_sshd.content | b64decode)"
+          - "'AllowUsers sasa' in (verify_sshd.content | b64decode)"
+        fail_msg: sshd drop-in is missing required settings
+        quiet: true
+
+    - name: Stat sshd drop-in
+      ansible.builtin.stat:
+        path: /etc/ssh/sshd_config.d/01-homelab.conf
+      register: verify_sshd_stat
+
+    - name: Drop-in is root-owned and mode 0600
+      ansible.builtin.assert:
+        that:
+          - verify_sshd_stat.stat.pw_name == 'root'
+          - verify_sshd_stat.stat.mode == '0600'
+        quiet: true

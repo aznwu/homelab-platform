@@ -1,0 +1,15 @@
+---
+# Users allowed to log in over SSH. Must include the account Ansible connects as.
+hardening_ssh_allow_users:
+  - sasa
+
+hardening_ssh_max_auth_tries: 3
+
+# firewalld services to keep open / to make sure are closed
+hardening_firewalld_services_open:
+  - ssh
+hardening_firewalld_services_closed:
+  - cockpit
+  - dhcpv6-client
+
+hardening_in_container: "{{ ansible_facts['virtualization_type'] | default('') in ['docker', 'podman', 'container', 'containerd'] }}"

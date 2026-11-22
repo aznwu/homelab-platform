@@ -1,0 +1,12 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Apply base role
+      ansible.builtin.include_role:
+        name: base
+
+    - name: Apply hardening role
+      ansible.builtin.include_role:
+        name: hardening

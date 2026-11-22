@@ -1,0 +1,15 @@
+---
+base_timezone: America/New_York
+
+base_packages:
+  - bash-completion
+  - chrony
+  - git
+  - jq
+  - policycoreutils-python-utils
+  - tar
+  - vim-enhanced
+
+# True inside CI containers: skips steps that need a real kernel/systemd host
+# (SELinux mode, chronyd, timezone, swapoff).
+base_in_container: "{{ ansible_facts['virtualization_type'] | default('') in ['docker', 'podman', 'container', 'containerd'] }}"

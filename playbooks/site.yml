@@ -1,0 +1,9 @@
+---
+- name: Configure lab nodes (base + hardening)
+  hosts: lab
+  gather_facts: true
+  roles:
+    - role: base
+      tags: [base]
+    - role: hardening
+      tags: [hardening]

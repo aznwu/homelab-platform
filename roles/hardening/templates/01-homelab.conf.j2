@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# Loaded before Rocky's 50-redhat.conf, so these values win (sshd uses the first value it reads).
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AllowUsers {{ hardening_ssh_allow_users | join(' ') }}
+MaxAuthTries {{ hardening_ssh_max_auth_tries }}
+X11Forwarding no
