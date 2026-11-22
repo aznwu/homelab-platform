@@ -17,6 +17,18 @@ rke2_tls_san:
   - "{{ ansible_host }}"
   - "{{ inventory_hostname }}"
 
+# Ingress controller(s). The first entry becomes the default IngressClass.
+# ingress-nginx is retired upstream; Traefik is RKE2's default from v1.36.
+rke2_ingress_controllers:
+  - traefik
+
+# Metrics for Prometheus
+rke2_etcd_expose_metrics: true    # etcd metrics on <node-ip>:2381 (read-only, plain HTTP)
+rke2_kube_proxy_metrics: true     # kube-proxy metrics on <node-ip>:10249
+# Controller-manager / scheduler metrics need bind-address=0.0.0.0, which FAILS
+# CIS checks 1.3.7 and 1.4.2. Off by default to stay CIS-compliant.
+rke2_expose_control_plane_metrics: false
+
 # Kubeconfig copied to the admin workstation
 rke2_fetch_kubeconfig: true
 rke2_kubeconfig_local: "{{ lookup('ansible.builtin.env', 'HOME') }}/.kube/homelab.yaml"

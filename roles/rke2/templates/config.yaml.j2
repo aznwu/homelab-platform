@@ -8,3 +8,23 @@ tls-san:
 {% endfor %}
 selinux: {{ rke2_selinux | bool | lower }}
 profile: "{{ rke2_profile }}"
+
+# Ingress
+ingress-controller:
+{% for ic in rke2_ingress_controllers %}
+  - {{ ic }}
+{% endfor %}
+
+# Metrics
+etcd-expose-metrics: {{ rke2_etcd_expose_metrics | bool | lower }}
+{% if rke2_kube_proxy_metrics | bool %}
+kube-proxy-arg:
+  - metrics-bind-address=0.0.0.0:10249
+{% endif %}
+{% if rke2_expose_control_plane_metrics | bool %}
+# NOTE: not CIS-compliant (CIS 1.3.7 / 1.4.2)
+kube-controller-manager-arg:
+  - bind-address=0.0.0.0
+kube-scheduler-arg:
+  - bind-address=0.0.0.0
+{% endif %}

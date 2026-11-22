@@ -9,7 +9,7 @@ A small Kubernetes platform on two 2013 Mac Pros, built and tested as code.
 | OS | Rocky Linux 9 (minimal) |
 | Config management | Ansible (`base`, `hardening`, `rke2`) |
 | CI | GitHub Actions: yamllint, ansible-lint, Molecule on Rocky 9 |
-| Kubernetes | RKE2 v1.35 (CIS profile, SELinux), RPM install |
+| Kubernetes | RKE2 v1.35 (CIS profile, SELinux), RPM install, Traefik ingress |
 | Delivery | Helm, then Argo CD (GitOps) — *Phases 3–4* |
 | Monitoring | kube-prometheus-stack (Prometheus, Grafana, Alertmanager) — *Phase 3* |
 
@@ -63,6 +63,11 @@ Passwordless sudo is deliberately not used on the nodes.
   done with NetworkPolicies.
 - RKE2 is pinned (`rke2_version` in `inventory/group_vars/rke2_servers.yml`). Its dnf repos
   are disabled outside the role, so `dnf update` never upgrades Kubernetes.
+- Ingress is Traefik (RKE2's bundled `rke2-traefik`). ingress-nginx is retired upstream and is
+  not deployed.
+- etcd and kube-proxy metrics are exposed for Prometheus. Controller-manager and scheduler
+  metrics stay on localhost to keep CIS checks 1.3.7 / 1.4.2 passing
+  (`rke2_expose_control_plane_metrics` turns them on).
 - The CIS profile enforces Pod Security `restricted` in every namespace except `kube-system`.
   Workloads that need host access (e.g. node-exporter) get explicit namespace exemptions.
 
@@ -70,8 +75,9 @@ Passwordless sudo is deliberately not used on the nodes.
 
 - [x] Phase 0 – Rocky 9 on mac1/mac2, SSH keys, firewalld
 - [x] Phase 1 – repo, base/hardening roles, CI
-- [ ] Phase 2 – RKE2 single node (CIS profile) via Ansible — *in progress*
-- [ ] Phase 3 – local-path-provisioner, MetalLB, cert-manager, kube-prometheus-stack
+- [x] Phase 2 – RKE2 single node (CIS profile) via Ansible
+- [ ] Phase 3a – Traefik ingress, etcd/kube-proxy metrics — *in progress*
+- [ ] Phase 3b – local-path-provisioner, MetalLB, cert-manager, kube-prometheus-stack
 - [ ] Phase 4 – Argo CD takes over Helm releases
 - [ ] Phase 5 – mac2 joins as agent, Longhorn
 - [ ] Phase 6 – real workloads (CronJobs for personal bots)
