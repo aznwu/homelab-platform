@@ -21,3 +21,4 @@ ignore: |
   .venv/
   .ansible/
   collections/
+  platform/local-path-provisioner/chart/

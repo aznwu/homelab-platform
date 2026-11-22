@@ -99,6 +99,22 @@
     mode: "0644"
   notify: Restart systemd-sysctl
 
+- name: SELinux file context for local-path volumes
+  community.general.sefcontext:
+    target: "{{ rke2_local_path_dir }}(/.*)?"
+    setype: container_file_t
+    state: present
+  notify: Restore SELinux context on local-path directory
+
+- name: Create local-path volume directory
+  ansible.builtin.file:
+    path: "{{ rke2_local_path_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restore SELinux context on local-path directory
+
 - name: Add RKE2 bin directory to PATH for interactive shells
   ansible.builtin.template:
     src: rke2-path.sh.j2

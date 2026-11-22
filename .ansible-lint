@@ -6,6 +6,8 @@ exclude_paths:
   - .ansible/
   - .github/
   - collections/
+  - platform/
+  - scripts/
 
 # Every task must be safe to run twice (CI enforces idempotence too).
 enable_list:

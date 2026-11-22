@@ -1,6 +1,7 @@
 # homelab-platform
 
 [![ansible-ci](https://github.com/aznwu/homelab-platform/actions/workflows/ansible-ci.yml/badge.svg)](https://github.com/aznwu/homelab-platform/actions/workflows/ansible-ci.yml)
+[![platform-ci](https://github.com/aznwu/homelab-platform/actions/workflows/platform-ci.yml/badge.svg)](https://github.com/aznwu/homelab-platform/actions/workflows/platform-ci.yml)
 
 A small Kubernetes platform on two 2013 Mac Pros, built and tested as code.
 
@@ -8,10 +9,11 @@ A small Kubernetes platform on two 2013 Mac Pros, built and tested as code.
 |---|---|
 | OS | Rocky Linux 9 (minimal) |
 | Config management | Ansible (`base`, `hardening`, `rke2`) |
-| CI | GitHub Actions: yamllint, ansible-lint, Molecule on Rocky 9 |
+| CI | GitHub Actions: yamllint, ansible-lint, Molecule on Rocky 9; Helm render + kubeconform for the platform layer |
 | Kubernetes | RKE2 v1.35 (CIS profile, SELinux), RPM install, Traefik ingress |
-| Delivery | Helm, then Argo CD (GitOps) — *Phases 3–4* |
-| Monitoring | kube-prometheus-stack (Prometheus, Grafana, Alertmanager) — *Phase 3* |
+| Platform | local-path-provisioner, MetalLB (L2), cert-manager (homelab CA) — Helm, pinned in `platform/versions.env` |
+| Delivery | Helm via `scripts/platform-up.sh`, then Argo CD (GitOps) — *Phase 4* |
+| Monitoring | kube-prometheus-stack (Prometheus, Grafana, Alertmanager), Grafana at https://grafana.lab |
 
 ## Hardware
 
@@ -29,8 +31,10 @@ playbooks/site.yml    applies all roles to the lab
 roles/base/           packages, chrony, timezone, SELinux enforcing, no swap
 roles/hardening/      sshd drop-in, firewalld (off on RKE2 nodes)
 roles/rke2/           RKE2 server: repos, CIS prerequisites, config, kubeconfig to flux
-molecule/default/     container tests for both roles (run in CI)
-.github/workflows/    ansible-ci pipeline
+platform/             Helm values, manifests and pinned versions for cluster services
+scripts/platform-up.sh  installs/upgrades the platform layer (idempotent)
+molecule/default/     container tests for base + hardening (run in CI)
+.github/workflows/    ansible-ci and platform-ci pipelines
 ```
 
 ## Usage (from flux)
@@ -44,7 +48,15 @@ ansible-playbook playbooks/site.yml --tags rke2        # RKE2 only
 
 export KUBECONFIG=~/.kube/homelab.yaml                 # written by the rke2 role
 kubectl get nodes
+
+./scripts/platform-up.sh                               # storage, cert-manager, MetalLB, monitoring
 ```
+
+Grafana: add `192.168.2.20 grafana.lab` to `/etc/hosts` on flux, then open https://grafana.lab.
+The admin password is generated on first install and lives only in the cluster:
+`kubectl -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d`.
+Prometheus and Alertmanager have no authentication, so they are not exposed; use
+`kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9090`.
 
 `ansible.cfg` sets `become_ask_pass = True`, so every run prompts for the sudo password.
 Passwordless sudo is deliberately not used on the nodes.
@@ -69,15 +81,21 @@ Passwordless sudo is deliberately not used on the nodes.
   metrics stay on localhost to keep CIS checks 1.3.7 / 1.4.2 passing
   (`rke2_expose_control_plane_metrics` turns them on).
 - The CIS profile enforces Pod Security `restricted` in every namespace except `kube-system`.
-  Workloads that need host access (e.g. node-exporter) get explicit namespace exemptions.
+  `platform/namespaces.yaml` grants `privileged` only to `local-path-storage`, `metallb-system`
+  and `monitoring`, each with the reason next to it.
+- The CIS network policies in `kube-system` only allow DNS from outside the namespace;
+  `platform/network-policies/` opens CoreDNS metrics to the `monitoring` namespace only.
+- local-path volumes live in `/var/lib/rancher/local-path`, labelled `container_file_t` by the
+  rke2 role so pods can write there with SELinux enforcing.
+- MetalLB hands out `192.168.2.240-249` (outside the router's DHCP pool).
 
 ## Roadmap
 
 - [x] Phase 0 – Rocky 9 on mac1/mac2, SSH keys, firewalld
 - [x] Phase 1 – repo, base/hardening roles, CI
 - [x] Phase 2 – RKE2 single node (CIS profile) via Ansible
-- [ ] Phase 3a – Traefik ingress, etcd/kube-proxy metrics — *in progress*
-- [ ] Phase 3b – local-path-provisioner, MetalLB, cert-manager, kube-prometheus-stack
+- [x] Phase 3a – Traefik ingress, etcd/kube-proxy metrics
+- [ ] Phase 3b – local-path-provisioner, MetalLB, cert-manager, kube-prometheus-stack — *in progress*
 - [ ] Phase 4 – Argo CD takes over Helm releases
 - [ ] Phase 5 – mac2 joins as agent, Longhorn
 - [ ] Phase 6 – real workloads (CronJobs for personal bots)

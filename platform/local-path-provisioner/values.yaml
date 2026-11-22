@@ -1,0 +1,22 @@
+---
+# Vendored chart: platform/local-path-provisioner/chart (rancher/local-path-provisioner v0.0.37)
+storageClass:
+  create: true
+  name: local-path
+  defaultClass: true
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+
+# On the 250 GB /var/lib/rancher volume, not the 80 GB root filesystem.
+# The rke2 Ansible role creates this directory with the container_file_t SELinux label.
+nodePathMap:
+  - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+    paths:
+      - /var/lib/rancher/local-path
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi

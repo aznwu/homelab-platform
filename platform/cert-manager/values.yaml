@@ -1,0 +1,10 @@
+---
+crds:
+  enabled: true
+  keep: true
+
+# ServiceMonitor is switched on once Prometheus is installed (Phase 4).
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: false

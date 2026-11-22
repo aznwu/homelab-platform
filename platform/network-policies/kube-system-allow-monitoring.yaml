@@ -1,0 +1,22 @@
+---
+# The CIS profile's default-network-policy only allows traffic from inside kube-system
+# (plus DNS on port 53). This opens CoreDNS metrics to Prometheus in "monitoring" only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-coredns-metrics
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: kube-dns
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9153

@@ -1,0 +1,43 @@
+---
+# The RKE2 CIS profile enforces Pod Security "restricted" in every namespace except
+# kube-system. Namespaces below override that explicitly; each exception says why.
+
+# Helper pods mount node hostPath directories to create/delete volumes.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: local-path-storage
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# MetalLB speaker uses hostNetwork and NET_RAW to answer ARP for service IPs.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metallb-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# cert-manager runs fine under "restricted" - stated explicitly.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# node-exporter needs hostNetwork, hostPID and hostPath (/, /proc, /sys).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

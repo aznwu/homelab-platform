@@ -1,0 +1,98 @@
+---
+name: platform-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "platform/**"
+      - "scripts/**"
+      - ".github/workflows/platform-ci.yml"
+  pull_request:
+    paths:
+      - "platform/**"
+      - "scripts/**"
+      - ".github/workflows/platform-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HELM_VERSION: v4.3.2
+  KUBECONFORM_VERSION: v0.8.0
+  KUBE_VERSION: "1.35.10"
+
+jobs:
+  render:
+    name: render + validate charts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tgz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          tar -xzf /tmp/kubeconform.tgz -C /usr/local/bin kubeconform
+          kubeconform -v
+
+      - name: shellcheck
+        run: shellcheck -x scripts/platform-up.sh
+
+      - name: Add Helm repos
+        run: |
+          helm repo add jetstack https://charts.jetstack.io
+          helm repo add metallb https://metallb.github.io/metallb
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+
+      - name: Render charts with pinned versions and our values
+        run: |
+          set -euo pipefail
+          source platform/versions.env
+          mkdir -p rendered
+          helm lint platform/local-path-provisioner/chart -f platform/local-path-provisioner/values.yaml
+          helm template local-path-provisioner platform/local-path-provisioner/chart \
+            -n local-path-storage -f platform/local-path-provisioner/values.yaml \
+            --kube-version "${KUBE_VERSION}" > rendered/local-path.yaml
+          helm template cert-manager jetstack/cert-manager --version "${CERT_MANAGER_VERSION}" \
+            -n cert-manager -f platform/cert-manager/values.yaml \
+            --kube-version "${KUBE_VERSION}" > rendered/cert-manager.yaml
+          helm template metallb metallb/metallb --version "${METALLB_VERSION}" \
+            -n metallb-system -f platform/metallb/values.yaml \
+            --kube-version "${KUBE_VERSION}" > rendered/metallb.yaml
+          helm template kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+            --version "${KUBE_PROMETHEUS_STACK_VERSION}" \
+            -n monitoring -f platform/kube-prometheus-stack/values.yaml \
+            --kube-version "${KUBE_VERSION}" > rendered/kube-prometheus-stack.yaml
+          wc -l rendered/*.yaml
+
+      - name: Check FRR-k8s is not deployed
+        run: |
+          if grep -q 'frr-k8s' rendered/metallb.yaml; then
+            echo "frr-k8s resources found in MetalLB render - expected L2 only"; exit 1
+          fi
+
+      - name: Validate manifests (kubeconform)
+        run: |
+          kubeconform -strict -summary -output text \
+            -kubernetes-version "${KUBE_VERSION}" \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -skip CustomResourceDefinition \
+            rendered/ platform/namespaces.yaml platform/network-policies/ \
+            platform/metallb/config.yaml platform/cert-manager/issuers.yaml

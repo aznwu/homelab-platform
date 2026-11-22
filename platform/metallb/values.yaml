@@ -1,0 +1,17 @@
+---
+# L2 mode only: MetalLB answers ARP for service IPs on the LAN.
+# FRR-k8s (the BGP backend, on by default in 0.16) is not needed and is turned off.
+frrk8s:
+  enabled: false
+
+speaker:
+  frr:
+    enabled: false
+
+crds:
+  enabled: true
+
+# ServiceMonitors are switched on once Prometheus is installed (Phase 4).
+prometheus:
+  serviceMonitor:
+    enabled: false

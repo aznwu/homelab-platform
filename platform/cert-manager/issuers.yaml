@@ -1,0 +1,41 @@
+---
+# 1) Self-signed issuer, used only to create the homelab root CA below.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-bootstrap
+spec:
+  selfSigned: {}
+---
+# 2) Homelab root CA (10 years). Its key lives only in the cluster (secret homelab-root-ca).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: homelab-root-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: homelab Root CA
+  subject:
+    organizations:
+      - homelab
+  secretName: homelab-root-ca
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: selfsigned-bootstrap
+    kind: ClusterIssuer
+    group: cert-manager.io
+---
+# 3) The issuer workloads use: annotate an Ingress with
+#    cert-manager.io/cluster-issuer: homelab-ca
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: homelab-ca
+spec:
+  ca:
+    secretName: homelab-root-ca

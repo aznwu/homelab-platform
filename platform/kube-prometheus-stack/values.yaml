@@ -1,0 +1,114 @@
+---
+crds:
+  enabled: true
+
+# ---------- Control plane targets (RKE2) ----------
+# etcd and kube-proxy run with hostNetwork; point Prometheus at the node IP
+# (exposed by the rke2 role: etcd-expose-metrics, kube-proxy metrics-bind-address).
+kubeEtcd:
+  enabled: true
+  endpoints:
+    - 192.168.2.20
+  service:
+    port: 2381
+    targetPort: 2381
+
+kubeProxy:
+  enabled: true
+  endpoints:
+    - 192.168.2.20
+
+# Kept on localhost to stay CIS-compliant (CIS 1.3.7 / 1.4.2). Disabling these also
+# disables their "down" alerts, so there are no permanent false alarms.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+
+# ---------- Prometheus ----------
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: 18GB
+    # Pick up ServiceMonitors/PodMonitors/rules from every namespace, not just this release.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 20Gi
+
+# ---------- Alertmanager ----------
+# No receivers yet: alerts are visible in the Alertmanager and Grafana UIs.
+alertmanager:
+  alertmanagerSpec:
+    retention: 120h
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi
+
+# ---------- Grafana ----------
+grafana:
+  # Random admin password, created by scripts/platform-up.sh, never stored in Git.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  defaultDashboardsTimezone: browser
+  persistence:
+    enabled: true
+    storageClassName: local-path
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: homelab-ca
+    hosts:
+      - grafana.lab
+    path: /
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.lab
+
+# ---------- Homelab rules ----------
+additionalPrometheusRulesMap:
+  homelab-security:
+    groups:
+      - name: homelab.security
+        rules:
+          # Cheap cryptominer tripwire: this lab is mostly idle.
+          - alert: NodeSustainedHighCPU
+            expr: (1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) > 0.85
+            for: 30m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Sustained high CPU on {{ $labels.instance }}"
+              description: >-
+                CPU has been above 85% for 30 minutes on {{ $labels.instance }}.
+                This lab is normally idle - check for runaway workloads or cryptominers
+                (kubectl top pods -A; top on the node).
