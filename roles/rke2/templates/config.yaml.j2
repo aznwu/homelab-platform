@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+write-kubeconfig-mode: "0600"
+node-name: {{ inventory_hostname }}
+node-ip: {{ rke2_node_ip }}
+tls-san:
+{% for san in rke2_tls_san %}
+  - "{{ san }}"
+{% endfor %}
+selinux: {{ rke2_selinux | bool | lower }}
+profile: "{{ rke2_profile }}"

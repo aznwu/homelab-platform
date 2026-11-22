@@ -1,0 +1,7 @@
+---
+# Pinned RKE2 release. Change this deliberately to upgrade; dnf update never touches RKE2
+# because its repos are disabled outside of this role.
+rke2_version: v1.35.10+rke2r1
+
+# Where the admin kubeconfig is written on flux (outside the repo, never committed).
+rke2_kubeconfig_local: "{{ lookup('ansible.builtin.env', 'HOME') }}/.kube/homelab.yaml"

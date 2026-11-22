@@ -5,7 +5,11 @@ hardening_ssh_allow_users:
 
 hardening_ssh_max_auth_tries: 3
 
-# firewalld services to keep open / to make sure are closed
+# true  = firewalld running with only the services below open
+# false = firewalld stopped, disabled and masked (required on RKE2 nodes with Canal)
+hardening_firewalld_enabled: true
+
+# Used only when hardening_firewalld_enabled is true
 hardening_firewalld_services_open:
   - ssh
 hardening_firewalld_services_closed:

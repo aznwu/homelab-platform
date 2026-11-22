@@ -33,27 +33,42 @@
     state: started
   when: not hardening_in_container
 
-- name: Enable and start firewalld
+# ---- firewalld enabled ----
+- name: Configure firewalld (enabled)
+  when:
+    - hardening_firewalld_enabled | bool
+    - not hardening_in_container
+  block:
+    - name: Unmask, enable and start firewalld
+      ansible.builtin.systemd_service:
+        name: firewalld
+        masked: false
+        enabled: true
+        state: started
+
+    - name: Open required firewalld services
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop: "{{ hardening_firewalld_services_open }}"
+
+    - name: Close unwanted firewalld services
+      ansible.posix.firewalld:
+        service: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: disabled
+      loop: "{{ hardening_firewalld_services_closed }}"
+
+# ---- firewalld disabled (RKE2 nodes) ----
+- name: Stop, disable and mask firewalld
   ansible.builtin.systemd_service:
     name: firewalld
-    enabled: true
-    state: started
-  when: not hardening_in_container
-
-- name: Open required firewalld services
-  ansible.posix.firewalld:
-    service: "{{ item }}"
-    permanent: true
-    immediate: true
-    state: enabled
-  loop: "{{ hardening_firewalld_services_open }}"
-  when: not hardening_in_container
-
-- name: Close unwanted firewalld services
-  ansible.posix.firewalld:
-    service: "{{ item }}"
-    permanent: true
-    immediate: true
-    state: disabled
-  loop: "{{ hardening_firewalld_services_closed }}"
-  when: not hardening_in_container
+    state: stopped
+    enabled: false
+    masked: true
+  when:
+    - not (hardening_firewalld_enabled | bool)
+    - not hardening_in_container

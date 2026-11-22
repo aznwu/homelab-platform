@@ -1,0 +1,204 @@
+---
+- name: Check host is EL9 x86_64
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['os_family'] == 'RedHat'
+      - ansible_facts['distribution_major_version'] == '9'
+      - ansible_facts['architecture'] == 'x86_64'
+    fail_msg: rke2 role supports EL9 x86_64 only
+    quiet: true
+
+- name: Check swap is off (kubelet will not run with swap)
+  ansible.builtin.assert:
+    that: ansible_facts['swaptotal_mb'] | int == 0
+    fail_msg: Swap is enabled - run the base role first.
+    quiet: true
+
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Fail if firewalld is active
+  ansible.builtin.assert:
+    that: ansible_facts.services['firewalld.service'].state | default('stopped') != 'running'
+    fail_msg: firewalld is running - set hardening_firewalld_enabled=false and run the hardening role first.
+    quiet: true
+
+- name: Record whether rke2-server is already running
+  ansible.builtin.set_fact:
+    rke2_server_was_running: "{{ ansible_facts.services['rke2-server.service'].state | default('stopped') == 'running' }}"
+
+# ---------- packages ----------
+- name: Import Rancher RPM signing key
+  ansible.builtin.rpm_key:
+    key: "{{ rke2_gpg_key }}"
+    state: present
+
+# Repos are left disabled and only enabled for installs below, so a routine
+# `dnf update` can never upgrade RKE2 behind your back.
+- name: Add RKE2 common repo (rke2-selinux)
+  ansible.builtin.yum_repository:
+    name: rancher-rke2-common-latest
+    description: Rancher RKE2 Common Latest
+    baseurl: "{{ rke2_rpm_base }}/common/centos/{{ rke2_el_major }}/noarch"
+    gpgcheck: true
+    repo_gpgcheck: true
+    gpgkey: "{{ rke2_gpg_key }}"
+    enabled: false
+
+- name: Add RKE2 minor-version repo {{ rke2_minor }}
+  ansible.builtin.yum_repository:
+    name: "rancher-rke2-{{ rke2_minor | replace('.', '-') }}-latest"
+    description: "Rancher RKE2 {{ rke2_minor }} Latest"
+    baseurl: "{{ rke2_rpm_base }}/{{ rke2_minor }}/centos/{{ rke2_el_major }}/x86_64"
+    gpgcheck: true
+    repo_gpgcheck: true
+    gpgkey: "{{ rke2_gpg_key }}"
+    enabled: false
+
+- name: Install rke2-selinux and rke2-server {{ rke2_version }}
+  ansible.builtin.dnf:
+    name:
+      - rke2-selinux
+      - "rke2-server-{{ rke2_rpm_version }}"
+    state: present
+    enablerepo:
+      - rancher-rke2-common-latest
+      - "rancher-rke2-{{ rke2_minor | replace('.', '-') }}-latest"
+
+# ---------- host prerequisites ----------
+- name: Tell NetworkManager to ignore Canal interfaces
+  ansible.builtin.template:
+    src: rke2-canal.conf.j2
+    dest: /etc/NetworkManager/conf.d/rke2-canal.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload NetworkManager
+
+- name: Create etcd group (CIS profile)
+  ansible.builtin.group:
+    name: etcd
+    system: true
+
+- name: Create etcd user (CIS profile)
+  ansible.builtin.user:
+    name: etcd
+    comment: etcd user
+    group: etcd
+    system: true
+    shell: /sbin/nologin
+    create_home: false
+
+- name: Install CIS kernel parameters
+  ansible.builtin.copy:
+    src: /usr/share/rke2/rke2-cis-sysctl.conf
+    dest: /etc/sysctl.d/60-rke2-cis.conf
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart systemd-sysctl
+
+- name: Add RKE2 bin directory to PATH for interactive shells
+  ansible.builtin.template:
+    src: rke2-path.sh.j2
+    dest: /etc/profile.d/rke2-path.sh
+    owner: root
+    group: root
+    mode: "0644"
+
+# ---------- config + service ----------
+- name: Create /etc/rancher/rke2
+  ansible.builtin.file:
+    path: /etc/rancher/rke2
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Write RKE2 server config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/rke2/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart rke2-server
+
+# sysctl and NetworkManager changes must be live before RKE2 first starts.
+- name: Apply pending host changes before starting RKE2
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start rke2-server (first start can take several minutes)
+  ansible.builtin.systemd_service:
+    name: rke2-server
+    enabled: true
+    state: started
+
+- name: Wait for node to be Ready
+  ansible.builtin.command:
+    argv:
+      - /var/lib/rancher/rke2/bin/kubectl
+      - --kubeconfig
+      - /etc/rancher/rke2/rke2.yaml
+      - get
+      - node
+      - "{{ inventory_hostname }}"
+      - -o
+      - jsonpath={.status.conditions[?(@.type=="Ready")].status}
+  register: rke2_node_ready
+  until: rke2_node_ready.stdout == 'True'
+  retries: "{{ rke2_ready_retries }}"
+  delay: "{{ rke2_ready_delay }}"
+  changed_when: false
+
+# ---------- kubeconfig to the admin workstation ----------
+- name: Copy kubeconfig to the admin workstation
+  when: rke2_fetch_kubeconfig | bool
+  block:
+    - name: Read RKE2 admin kubeconfig
+      ansible.builtin.slurp:
+        src: /etc/rancher/rke2/rke2.yaml
+      register: rke2_kubeconfig_raw
+      no_log: true
+
+    - name: Build kubeconfig pointing at {{ ansible_host }}
+      ansible.builtin.set_fact:
+        rke2_kubeconfig: "{{ rke2_kubeconfig_doc | to_nice_yaml(indent=2) }}"
+      vars:
+        rke2_src: "{{ rke2_kubeconfig_raw.content | b64decode | from_yaml }}"
+        rke2_kubeconfig_doc:
+          apiVersion: v1
+          kind: Config
+          clusters:
+            - name: "{{ rke2_kubeconfig_name }}"
+              cluster:
+                certificate-authority-data: "{{ rke2_src.clusters[0].cluster['certificate-authority-data'] }}"
+                server: "https://{{ ansible_host }}:6443"
+          users:
+            - name: "{{ rke2_kubeconfig_name }}-admin"
+              user: "{{ rke2_src.users[0].user }}"
+          contexts:
+            - name: "{{ rke2_kubeconfig_name }}"
+              context:
+                cluster: "{{ rke2_kubeconfig_name }}"
+                user: "{{ rke2_kubeconfig_name }}-admin"
+          current-context: "{{ rke2_kubeconfig_name }}"
+      no_log: true
+
+    - name: Create ~/.kube on the admin workstation
+      ansible.builtin.file:
+        path: "{{ rke2_kubeconfig_local | dirname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      become: false
+
+    - name: Write kubeconfig on the admin workstation
+      ansible.builtin.copy:
+        content: "{{ rke2_kubeconfig }}"
+        dest: "{{ rke2_kubeconfig_local }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      no_log: true

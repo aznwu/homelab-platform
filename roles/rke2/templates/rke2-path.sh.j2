@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# RKE2 ships kubectl, crictl and ctr here.
+case ":${PATH}:" in
+  *:/var/lib/rancher/rke2/bin:*) ;;
+  *) PATH="${PATH}:/var/lib/rancher/rke2/bin" ;;
+esac
+export PATH

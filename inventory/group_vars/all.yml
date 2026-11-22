@@ -9,3 +9,8 @@ base_timezone: America/New_York
 # hardening role
 hardening_ssh_allow_users:
   - sasa
+
+# RKE2's default networking (Canal) conflicts with firewalld, and the RKE2 docs say to
+# disable it. The kernel firewall (iptables/nftables) stays in place and Canal manages it.
+# Host-level filtering moves to Kubernetes NetworkPolicies / Calico resources.
+hardening_firewalld_enabled: false

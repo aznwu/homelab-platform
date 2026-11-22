@@ -1,0 +1,27 @@
+---
+# Pinned release (override in inventory/group_vars/rke2_servers.yml)
+rke2_version: v1.35.10+rke2r1
+
+# Derived values - normally leave alone
+rke2_minor: "{{ rke2_version | regex_replace('^v?(\\d+\\.\\d+)\\..*$', '\\1') }}"
+rke2_rpm_version: "{{ rke2_version | regex_replace('^v', '') | replace('+', '~') }}"
+rke2_el_major: "{{ ansible_facts['distribution_major_version'] }}"
+rke2_rpm_base: https://rpm.rancher.io/rke2/latest
+rke2_gpg_key: https://rpm.rancher.io/public.key
+
+# Server config (/etc/rancher/rke2/config.yaml)
+rke2_profile: cis
+rke2_selinux: true
+rke2_node_ip: "{{ ansible_host }}"
+rke2_tls_san:
+  - "{{ ansible_host }}"
+  - "{{ inventory_hostname }}"
+
+# Kubeconfig copied to the admin workstation
+rke2_fetch_kubeconfig: true
+rke2_kubeconfig_local: "{{ lookup('ansible.builtin.env', 'HOME') }}/.kube/homelab.yaml"
+rke2_kubeconfig_name: homelab
+
+# How long to wait for the node to become Ready after start (seconds = retries x delay)
+rke2_ready_retries: 60
+rke2_ready_delay: 10
