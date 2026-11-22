@@ -83,9 +83,12 @@ jobs:
 
       - name: Check FRR-k8s is not deployed
         run: |
-          if grep -q 'frr-k8s' rendered/metallb.yaml; then
-            echo "frr-k8s resources found in MetalLB render - expected L2 only"; exit 1
+          # Match real frr-k8s resources (metallb-frr-k8s...) or the frr-k8s BGP mode env var,
+          # not CRD description text that merely mentions "frr-k8s mode".
+          if grep -nE '^[[:space:]]*name: [a-z0-9.-]*frr-k8s|^[[:space:]]*value: frr-k8s[[:space:]]*$' rendered/metallb.yaml; then
+            echo "frr-k8s found in MetalLB render - expected L2 only"; exit 1
           fi
+          echo "OK: no frr-k8s components"
 
       - name: Validate manifests (kubeconform)
         run: |
